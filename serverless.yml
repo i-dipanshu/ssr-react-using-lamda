@@ -1,14 +1,23 @@
 ---
-service: serverless-react-boilerplate
+service: serverless-react-boilerplate # This name will be used to create all resources and can't be changed later
+frameworkVersion: "3"
+useDotenv: true
+variablesResolutionMode: 20210326
+disabledDeprecations:
+  - CLI_OPTIONS_SCHEMA # some Serverless plugins haven't been updated yet and generate warnings
 
 provider:
   name: aws
-  runtime: nodejs12.x
+  runtime: nodejs16.x
   region: ${opt:region, 'us-east-1'}
   stage: ${opt:stage, 'dev'}
   memorySize: 512
   timeout: 6
   logRetentionInDays: 7
+  lambdaHashingVersion: 20201221 # for upcoming Serverless v3
+
+  apiGateway:
+    shouldStartNameWithService: true # for upcoming Serverless v3
 
   environment:
     SERVERLESS_PROJECT: ${self:service}
@@ -29,7 +38,6 @@ provider:
 
 plugins:
   - serverless-webpack
-  - serverless-export-env
   - serverless-plugin-scripts
   - serverless-offline
   - serverless-s3-deploy
@@ -69,29 +77,30 @@ custom:
     hooks:
       # Build the client-side script before packaging backend code
       package:initialize: "npm run build:browser"
-      deploy:finalize: "npx sls s3deploy"
+      deploy:finalize: "npx sls s3deploy --stage ${self:provider.stage}"
 
   webpack:
     webpackConfig: "webpack.server.config.js"
 
   assets:
-    # Automatically copying public folder and distribution to S3 stopped working; we do it manually now
+    # Automatically copy distribution folder to S3 stopped working; do it manually (see `scripts.hooks.deploy:finalize`)
     auto: false
     targets:
       - bucket:
           Ref: DistBucket
         acl: public-read
         files:
-          - source: public/
-            globs:
-              - "**/*"
           - source: dist/
             headers:
               CacheControl: max-age=31104000 # 1 year
             globs:
-              - "**/*.js"
-              - "**/*.css"
-              - "**/*.map"
+              - "**/*"
+
+  serverless-offline:
+    useChildProcesses: true
+    noPrependStageInUrl: true
+    httpPort: 3000
+    lambdaPort: 3002
 
 resources:
   Resources:
@@ -107,6 +116,14 @@ resources:
       Type: AWS::S3::Bucket
       DeletionPolicy: Delete
       Properties:
+        PublicAccessBlockConfiguration:
+          BlockPublicAcls: false
+          BlockPublicPolicy: false
+          IgnorePublicAcls: false
+          RestrictPublicBuckets: false
+        OwnershipControls:
+          Rules:
+            - ObjectOwnership: ObjectWriter
         CorsConfiguration:
           CorsRules:
             - AllowedHeaders:
